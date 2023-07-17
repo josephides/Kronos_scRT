@@ -338,7 +338,7 @@ genome.Chromsizes = foreach(
     genome.Chromsizes = tibble(chr = Chr,
                                size = width(reference[Chr]))
 
-    position = find_known_sequences(reference[Chr])
+    position = find_known_sequences(as.character(reference[Chr]))
 
     #look for seeds
     if (opt$paired_ends) {
