@@ -257,10 +257,10 @@ if ('Cat2' %in% names(data) & !opt$pval) {
 
 }else{
     #add all bins together
-    data = data %>%
-        rbind(data %>%
-                  mutate(Cat1 = '_All_'))
-
+    # data = data %>%
+    #     rbind(data %>%
+    #               mutate(Cat1 = '_All_'))
+    data$Cat1= 'All'
     #select annotation to use for plotting and pvalue
     if (opt$Annotation_to_use_for_pval==2){
         data=data%>%dplyr::mutate(Cat1=Cat2)

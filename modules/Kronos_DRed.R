@@ -109,7 +109,7 @@ if (!dir.exists(opt$out)) {
 }
 
 #set plotting theme
-theme_set(theme_bw())
+theme_set(theme_linedraw())
 
 #Set seed for reproducibility
 set.seed(opt$seed)

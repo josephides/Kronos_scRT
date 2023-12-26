@@ -46,7 +46,7 @@ suppressPackageStartupMessages(library(GGally, quietly = TRUE))
 suppressPackageStartupMessages(library(ggcorrplot, quietly = TRUE))
 suppressPackageStartupMessages(library(foreach, quietly = TRUE))
 
-theme_set(theme_bw())
+theme_set(theme_linedraw())
 
 
 if (!'File' %in% names(opt)) {
@@ -80,27 +80,48 @@ scRT = foreach(
     }
 }
 
+scRT$group <- gsub("_", " ", scRT$group)
+scRT$group <- gsub(" $", "", scRT$group)
+unique(scRT$group)
 
 scRT = scRT %>% spread(group, RT) %>%
     drop_na() %>%
     dplyr::select(-chr, -start, -end)
 
+scRT = select(scRT, -c('HCT-116 1', 'FNA-sample SA1135 S1','HGSOC-OV2295 SA922 S2'))
+# scRT = select(scRT, c('GM12878','GM12891', 'GM12892', 'JEFF', 'GM18507 SA928 '))
+colnames(scRT)
+length(colnames(scRT))
+
 plot = ggcorrplot(
     scRT %>%
         cor(method = 'spearman'),
     lab = T,
-    lab_col = 'red',
-    legend.title = 'Spearman\ncorrelation',
-    colors =  c('#BCAF6FFF', '#7C7B78FF', '#00204DFF'),
-    ggtheme = ggplot2::theme(aspect.ratio = 1)
-)
+    lab_col = 'white',
+    outline.color = 'white',
+    ggtheme = ggplot2::theme_bw , 
+    tl.cex = 11, lab_size=3, pch.cex=10, hc.order = T, hc.method='ward.D2'
+) +  scale_fill_gradient2(breaks=c(0, 1), limit=c(0, 1),
+      low='#7C7B78FF', mid='#1A85FF', high='#D41159',
+      midpoint = 0.5, name= 'Spearman\ncorrelation') +
+  theme(text=element_text(size=12, family="mono"), legend.position="top")
 
-suppressMessages(ggsave(plot = plot,
-                        filename = file.path(
-                            opt$out,
-                            paste0(opt$output_file_base_name,
-                                   '_spearman_correlation.pdf')
-                        )))
+plot
+
+ggsave(plot = plot,
+       filename = '~/Downloads/Rplot_spearman_correlation.pdf',
+       width = 15,
+       height = 15)
+
+# suppressMessages(ggsave(plot = plot,
+#                         filename = file.path(
+#                             opt$out,
+#                             paste0(opt$output_file_base_name,
+#                                    '_spearman_correlation.pdf')
+#                         )))
+
+
+scRT = select(scRT, c('FNA-sample SA1135 S2','FNA-sample SA1135 S4'))
 
 suppressMessages(ggsave(
     plot = ggpairs(
@@ -131,7 +152,7 @@ suppressMessages(ggsave(
                         x = 0.5,
                         y = 0.5,
                         label = paste("Corr:", round(unique(Spearman), 3), sep = '\n'),
-                        color = 'red'
+                        color = 'white'
                     ) +
                     scale_fill_gradient2(
                         low = '#BCAF6FFF',
@@ -175,11 +196,7 @@ suppressMessages(ggsave(
         legend.position = "right",
         axis.text.x = element_text(angle = 45, hjust = 1)
     ),
-    filename = file.path(
-        opt$out,
-        paste0(opt$output_file_base_name,
-               '_pair_scatter_plot_RTs.pdf')
-    )
+    filename = '~/Downloads/Rplot2_spearman_correlation.pdf', width = 4.5, height = 4
 ))
 
 print('done')
