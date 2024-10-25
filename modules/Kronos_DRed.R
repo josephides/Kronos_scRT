@@ -74,6 +74,14 @@ option_list = list(
         metavar = "logical"
     ),
     make_option(
+      c("-P", "--PHATE"),
+      type = "logical",
+      default = FALSE,
+      action = "store_true",
+      help = "Plot PHATE.",
+      metavar = "logical"
+    ),
+    make_option(
         c("--chr_prefix"),
         type = "character",
         action = 'store',
@@ -109,7 +117,7 @@ if (!dir.exists(opt$out)) {
 }
 
 #set plotting theme
-theme_set(theme_linedraw())
+theme_set(theme_classic())
 
 #Set seed for reproducibility
 set.seed(opt$seed)
@@ -127,20 +135,24 @@ if ('order' %in% names(opt)) {
 }
 
 #load CNV files
+cl = makeCluster(opt$cores)
+registerDoSNOW(cl)
 scCNV = foreach(
     i = 1:length(opt$scCNV),
     .packages = 'tidyverse',
     .combine = 'rbind'
-) %do% {
+) %dopar% {
     tmp = read_tsv(opt$scCNV[i], col_types = cols(chr = 'c'))
     if ('order' %in% names(opt)) {
         tmp %>%
             mutate(group = factor(group, levels = opt$order))
-        
     } else{
         tmp
     }
 }
+stopCluster(cl)
+
+print(paste0('Loaded ',opt$scCNV))
 
 # select chrs of interest
 # convert string into range
@@ -177,7 +189,7 @@ scCNV = scCNV %>%
         'pos',
         'Cell',
         'PercentageReplication',
-        'basename',
+        'dataset',
         'group',
         'data' = case_when(
             opt$CNV_values == 'B' ~ 'Rep',
@@ -191,6 +203,7 @@ scCNV = scCNV %>%
 #remove NA columns
 scCNV = scCNV[, colSums(is.na(scCNV)) == 0]
 
+
 mat = scCNV[, -c(1:4)]
 scCNV = scCNV[, c(1:4)]
 
@@ -200,21 +213,18 @@ if (opt$CNV_values == 'B') {
         cl = makeCluster(opt$cores)
         registerDoSNOW(cl)
         
-        
         results = foreach(C = chr,
                           .packages = 'ade4',
                           .inorder = T) %dopar% {
                               as.matrix(dist.binary(mat[, grepl(pattern = paste0(C, ':'), x = colnames(mat))], method = 2))
-                              
                           }
-        
         stopCluster(cl)
         
         names(results) = chr
         
     } else{
         results = list()
-        results[['all Chr']] = as.matrix(dist.binary(mat, method = 2))
+        results[['all_Chr']] = as.matrix(dist.binary(mat, method = 2))
     }
 } else{
     if (opt$per_Chr) {
@@ -233,7 +243,7 @@ if (opt$CNV_values == 'B') {
         
     } else{
         results = list()
-        results[['all Chr']] = as.matrix(mat)
+        results[['all_Chr']] = as.matrix(mat)
     }
     
 }
@@ -279,14 +289,17 @@ if (!opt$UMAP) {
         .packages = c('tidyverse'),
         .combine = 'rbind'
     ) %do% {
-        plot = scCNV %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
-                                                                            group, shape = group),
-                                                                    alpha = 0.4,
-                                                                    size = 2) + xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr)
+        plot = scCNV %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color = group, shape = group),
+                                                                    alpha = 0.5, size = 2) +
+          xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr) +
+          scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3)) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical")
         
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
@@ -298,18 +311,21 @@ if (!opt$UMAP) {
         ))
         
         plot = scCNV %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
-                                                                            basename, shape = group),
-                                                                    alpha = 0.4,
-                                                                    size = 2) + xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr)
+                                                                            dataset, shape = group),
+                                                                    alpha = 0.5,
+                                                                    size = 2) + xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical") 
         
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
                 C,
-                'tsne_color_by_basename.pdf',
+                'tsne_color_by_dataset.pdf',
                 sep = '_'
             ),
             device = cairo_pdf
@@ -317,7 +333,7 @@ if (!opt$UMAP) {
         
         plot = scCNV %>% filter(Chr == C) %>% ggplot() + geom_point(
             aes(x, y, color = PercentageReplication, shape = group),
-            alpha = 0.4,
+            alpha = 0.5,
             size = 2
         ) + scale_color_gradient2(
             low = "#FFEA46FF",
@@ -325,10 +341,14 @@ if (!opt$UMAP) {
             high = "#00204DFF",
             lim = c(0, 1),
             midpoint = 0.5
-        ) + xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr)
+        ) + xlab('TSNE1') + ylab('TSNE2') + facet_wrap( ~ Chr) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical") 
+        
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
@@ -375,12 +395,16 @@ if (!opt$TSNE) {
     ) %do% {
         plot = scCNV_umap %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
                                                                                  group, shape = group),
-                                                                         alpha = 0.4,
-                                                                         size = 2) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)
+                                                                         alpha = 0.5,
+                                                                         size = 2) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)+
+          scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3)) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical") 
         
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
@@ -392,18 +416,22 @@ if (!opt$TSNE) {
         ))
         
         plot = scCNV_umap %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
-                                                                                 basename, shape = group),
-                                                                         alpha = 0.4,
-                                                                         size = 2) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)
+                                                                                 dataset, shape = group),
+                                                                         alpha = 0.5,
+                                                                         size = 2) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)+
+          scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3)) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical")
         
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
                 C,
-                'umap_color_by_basename.pdf',
+                'umap_color_by_dataset.pdf',
                 sep = '_'
             ),
             device = cairo_pdf
@@ -411,7 +439,7 @@ if (!opt$TSNE) {
         
         plot = scCNV_umap %>% filter(Chr == C) %>% ggplot() + geom_point(
             aes(x, y, color = PercentageReplication, shape = group),
-            alpha = 0.4,
+            alpha = 0.5,
             size = 2
         ) + scale_color_gradient2(
             low = "#FFEA46FF",
@@ -419,10 +447,15 @@ if (!opt$TSNE) {
             high = "#00204DFF",
             lim = c(0, 1),
             midpoint = 0.5
-        ) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)
+        ) + xlab('UMAP1') + ylab('UMAP2') + facet_wrap( ~ Chr)+
+          scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3)) +
+          guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE))+
+         theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical") 
+        
         suppressMessages(ggsave(
             plot = plot,
             dpi = 300,
+            width = 9, height = 4,
             filename = paste(
                 file.path(opt$out,
                           opt$output_file_base_name),
@@ -435,5 +468,150 @@ if (!opt$TSNE) {
         C
     }
 }
+
+scCNV_phate = scCNV
+scCNV_phate$group[scCNV_phate$group == 'T-47D_SA1044_S1'] = 'T-47D SA1044 S1'
+scCNV_phate$group[scCNV_phate$group == 'HeLa_SA1087_'] = 'HeLa SA1087 (Laks2019)'
+scCNV_phate$group[scCNV_phate$group == 'HeLa Gnan2022'] = 'HeLa (Gnan2022)'
+scCNV_phate$group <- gsub("_", " ", scCNV_phate$group)
+scCNV_phate$group <- gsub(" $", "", scCNV_phate$group)
+
+Print('Cell types: ')
+print(unique(scCNV_phate$group))
+
+# PHATE
+if (opt$PHATE) {
+  print('Warning, only tested on binary data (scRT). Use with caution.')
+  if (!require(viridis)) install.packages("viridis")
+  if (!require(ggplot2)) install.packages("ggplot2")
+  if (!require(readr)) install.packages("readr")
+  if (!require(phateR)) install.packages("readr")
+  library(phateR)
+  library(ggplot2)
+  library(readr)
+  library(viridis)
+  
+  scCNV_phate = foreach(
+    C = names(results),
+    .packages = c('phateR', 'tidyverse'),
+    .combine = 'rbind'
+  ) %do% {
+    
+    PHATE <- phate(results[[C]], seed = opt$seed, n.jobs = opt$cores,
+                   knn.dist.method='precomputed')
+    
+    scCNV_phate %>% mutate(Chr = C,
+                          x = PHATE$embedding[, 1],
+                          y = PHATE$embedding[, 2])
+  }
+  write_tsv(scCNV_phate, paste0(
+    file.path(opt$out,
+              opt$output_file_base_name),
+    '_phate.txt'
+  ))
+  
+  X_phate = foreach(
+    C = names(results),
+    .packages = c('tidyverse'),
+    .combine = 'rbind'
+  ) %do% {
+    plot = scCNV_phate %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
+                                                                           group, shape = group),
+                                                                     alpha = 0.5,
+                                                                     size = 2) + xlab('PHATE1') + ylab('PHATE2') +# facet_wrap( ~ Chr) +
+      scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3), name = "Cell Type") +
+      guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+      theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical") +
+      scale_color_manual(values=viridis::turbo(length(unique(scCNV_phate$group))), name = "Cell Type")
+     
+    # Extract the legend
+    legend <- cowplot::get_legend(plot)
+    
+    # Remove legend from the main plot
+    plot_without_legend <- plot + theme(legend.position = "none", plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+    
+    # Combine the plot and legend, with the legend taking 2/3 of the total width
+    final_plot <- cowplot::plot_grid(plot_without_legend, legend, rel_widths = c(4, 5))
+    
+    suppressMessages(ggsave(
+      plot = final_plot,
+      dpi = 300,
+      width = 9, height = 4,
+      filename = paste(
+        file.path(opt$out,
+                  opt$output_file_base_name),
+        C,
+        'phate_color_by_group.pdf',
+        sep = '_'
+      ),
+      device = cairo_pdf
+    ))
+    
+    plot = scCNV_phate %>% filter(Chr == C) %>% ggplot() + geom_point(aes(x, y, color =
+                                                                           dataset, shape = group),
+                                                                     alpha = 0.5,
+                                                                     size = 2) + xlab('PHATE1') + ylab('PHATE2') +
+      scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3)) +
+      guides(color = guide_legend(ncol= 2), shape=guide_legend(ncol = 2, byrow = FALSE)) +
+      theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical")
+    
+    suppressMessages(ggsave(
+      plot = plot,
+      dpi = 300,
+      width = 9, height = 4,
+      filename = paste(
+        file.path(opt$out,
+                  opt$output_file_base_name),
+        C,
+        'phate_color_by_dataset.pdf',
+        sep = '_'
+      ),
+      device = cairo_pdf
+    ))
+    
+    plot = scCNV_phate %>% filter(Chr == C) %>% ggplot() + geom_point(
+      aes(x, y, color = PercentageReplication, shape = group),
+      alpha = 0.5,
+      size = 2
+    ) +
+      guides(shape=guide_legend(ncol = 2, byrow = FALSE)) +
+      scale_color_gradient2(
+      low = "#FFEA46FF",
+      mid = "#7C7B78FF",
+      high = "#00204DFF",
+      lim = c(0, 1),
+      midpoint = 0.5, name = "Replication"
+    ) + xlab('PHATE1') + ylab('PHATE2') + #facet_wrap( ~ Chr) +
+      scale_shape_manual(values = rep(c(1,15,2,16,3,17,4,18,5,19,6,20,0), 3), name='Cell Type')  +
+     theme(legend.position="right", legend.key.width = unit(.25, "in"), legend.text = element_text(size=8), legend.box = "vertical")
+    
+    # Extract the legend
+    legend <- cowplot::get_legend(plot)
+    
+    # Remove legend from the main plot
+    plot_without_legend <- plot + theme(legend.position = "none", plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+    
+    # Combine the plot and legend, with the legend taking 2/3 of the total width
+    final_plot <- cowplot::plot_grid(plot_without_legend, legend, rel_widths = c(4, 5))
+    
+    suppressMessages(ggsave(
+      plot = final_plot,
+      dpi = 300,
+      width = 9, height = 4,
+      filename = paste(
+        file.path(opt$out,
+                  opt$output_file_base_name),
+        C,
+        'phate_color_by_rep_percentage.pdf',
+        sep = '_'
+      ),
+      device = cairo_pdf
+    ))
+    C
+  }
+}
+
+write(x = as.character(sessioninfo::session_info()),
+      file = paste0(file.path(opt$out,opt$output_file_base_name),'_session_info.txt'))
 
 print('done')
